@@ -1,2 +1,2 @@
 *.session
-*.ini
+config/*
