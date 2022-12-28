@@ -9,14 +9,13 @@ from getpass import getpass
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
 from telethon.network import ConnectionTcpAbridged
+
 from telethon.utils import get_display_name
 from telethon.tl.functions.messages import GetDialogsRequest
 from telethon.tl.functions.channels import EditBannedRequest
 from telethon.tl.types import ChatBannedRights , UserStatusOffline, InputPeerEmpty
 
 
-# Create a global variable to hold the loop we will be using
-loop = asyncio.get_event_loop()
 
 
 def sprint(string, *args, **kwargs):
@@ -56,13 +55,13 @@ async def async_input(prompt):
     let the loop run while we wait for input.
     """
     print(prompt, end='', flush=True)
-    return (await loop.run_in_executor(None, sys.stdin.readline)).rstrip()
-
+    return (await asyncio.get_running_loop().run_in_executor(None, sys.stdin.readline)).rstrip()
 
 class InteractiveTelegramClient(TelegramClient):
 
 
-    def __init__(self, session_user_id, api_id, api_hash, proxy=None):
+    def __init__(self, session_user_id, api_id, api_hash,
+                 proxy=None):
         """
         Initializes the InteractiveTelegramClient.
         :param session_user_id: Name of the *.session file.
@@ -95,34 +94,34 @@ class InteractiveTelegramClient(TelegramClient):
         # media known the message ID, for every message having media.
         self.found_media = {}
 
+    async def init(self):
         # Calling .connect() may raise a connection error False, so you need
         # to except those before continuing. Otherwise you may want to retry
         # as done here.
         print('Connecting to Telegram servers...')
         try:
-            loop.run_until_complete(self.connect())
+            await self.connect()
         except IOError:
             # We handle IOError and not ConnectionError because
             # PySocks' errors do not subclass ConnectionError
             # (so this will work with and without proxies).
             print('Initial connection failed. Retrying...')
-            loop.run_until_complete(self.connect())
+            await self.connect()
 
         # If the user hasn't called .sign_in() or .sign_up() yet, they won't
         # be authorized. The first thing you must do is authorize. Calling
         # .sign_in() should only be done once as the information is saved on
         # the *.session file so you don't need to enter the code every time.
-        if not loop.run_until_complete(self.is_user_authorized()):
+        if not await self.is_user_authorized():
             print('First run. Sending code request...')
             user_phone = input('Enter your phone: ')
-            loop.run_until_complete(self.sign_in(user_phone))
+            await self.sign_in(user_phone)
 
             self_user = None
             while self_user is None:
                 code = input('Enter the code you just received: ')
                 try:
-                    self_user =\
-                        loop.run_until_complete(self.sign_in(code=code))
+                    self_user = await self.sign_in(code=code)
 
                 # Two-step verification may be enabled, and .sign_in will
                 # raise this error. If that's the case ask for the password.
@@ -132,8 +131,7 @@ class InteractiveTelegramClient(TelegramClient):
                     pw = getpass('Two step verification is enabled. '
                                  'Please enter your password: ')
 
-                    self_user =\
-                        loop.run_until_complete(self.sign_in(password=pw))
+                    self_user = await self.sign_in(password=pw)
 
     async def run(self):
         """Main loop of the TelegramClient, will wait for user action"""
@@ -325,11 +323,11 @@ class InteractiveTelegramClient(TelegramClient):
         async for participant in self.iter_participants(group):
             if isinstance(participant.status , UserStatusOffline):
                 dif = datetime.datetime.utcnow().replace(tzinfo=None) - participant.status.was_online.replace(tzinfo=None)
-                if  dif > datetime.timedelta(days = 180):
+                if  dif > datetime.timedelta(days = 30):
                     print(participant.first_name," " ,participant.last_name)
 
 
-if __name__ == '__main__':
+async def main():
 
     config = configparser.ConfigParser()
     config.read("config/config.ini")
@@ -338,5 +336,10 @@ if __name__ == '__main__':
     API_ID = int(config['Basic']['api_id'])
     API_HASH = config['Basic']['api_hash']
 
-    client = InteractiveTelegramClient(SESSION, API_ID, API_HASH)
-    loop.run_until_complete(client.run())
+    # client = InteractiveTelegramClient(SESSION, API_ID, API_HASH)
+    # loop.run_until_complete(client.run())
+    client = await InteractiveTelegramClient(SESSION, API_ID, API_HASH).init()
+    await client.run()
+
+if __name__ == '__main__':
+    asyncio.run(main())
